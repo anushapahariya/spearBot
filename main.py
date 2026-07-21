@@ -1,6 +1,8 @@
 import streamlit as st
 import time
-import random
+import json
+import uuid
+from pathlib import Path
 
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
@@ -11,6 +13,28 @@ st.set_page_config(
     layout="centered",
     initial_sidebar_state="expanded",
 )
+
+# ----------------------------------------------------------------------------
+# PERSISTENCE (local JSON file — swap for a real DB in production)
+# ----------------------------------------------------------------------------
+HISTORY_FILE = Path(__file__).parent / "chat_history.json"
+
+def load_history() -> dict:
+    if HISTORY_FILE.exists():
+        try:
+            return json.loads(HISTORY_FILE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+def save_history(history: dict):
+    HISTORY_FILE.write_text(json.dumps(history, indent=2))
+
+def make_title(messages: list) -> str:
+    for m in messages:
+        if m["role"] == "user":
+            return (m["content"][:40] + "…") if len(m["content"]) > 40 else m["content"]
+    return "New chat"
 
 # ----------------------------------------------------------------------------
 # CUSTOM CSS
@@ -78,15 +102,16 @@ st.markdown("""
         color: #f4f4f5 !important;
     }
 
-    /* User bubble tint (enhancement where :has() is supported) */
+    /* User bubble tint — warm amber/orange, distinct from the cool sidebar/header */
     div[data-testid="stChatMessage"]:has(div[data-testid="chatAvatarIcon-user"]) {
-        background: linear-gradient(135deg, #7f5af0, #6246ea) !important;
+        background: linear-gradient(135deg, #f59e0b, #ea580c) !important;
         margin-left: 10%;
     }
 
-    /* Assistant bubble tint */
+    /* Assistant bubble tint — teal glass */
     div[data-testid="stChatMessage"]:has(div[data-testid="chatAvatarIcon-assistant"]) {
-        background: rgba(255,255,255,0.06) !important;
+        background: rgba(45, 212, 191, 0.08) !important;
+        border: 1px solid rgba(45, 212, 191, 0.2) !important;
         margin-right: 10%;
     }
 
@@ -101,14 +126,14 @@ st.markdown("""
         background: transparent !important;
     }
 
-    /* Chat input box */
+    /* Chat input box — teal accent border */
     .stChatInput {
         background: transparent !important;
     }
     .stChatInput textarea, .stChatInput > div {
         border-radius: 14px !important;
         background: rgba(255,255,255,0.07) !important;
-        border: 1px solid rgba(255,255,255,0.15) !important;
+        border: 1px solid rgba(45, 212, 191, 0.3) !important;
     }
     .stChatInput textarea {
         color: white !important;
@@ -116,45 +141,45 @@ st.markdown("""
     .stChatInput textarea::placeholder {
         color: rgba(255,255,255,0.5) !important;
     }
-    /* Send button inside chat input */
+    /* Send button inside chat input — pink/violet, distinct pop of color */
     .stChatInput button {
-        background: linear-gradient(135deg, #7f5af0, #2cb67d) !important;
+        background: linear-gradient(135deg, #ec4899, #8b5cf6) !important;
         border-radius: 10px !important;
     }
 
-    /* Sidebar */
+    /* Sidebar - distinct cool slate-blue, different family from main bg */
     section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
-        border-right: 1px solid rgba(255,255,255,0.06);
+        background: linear-gradient(180deg, #0f172a 0%, #1e293b 100%);
+        border-right: 1px solid rgba(56, 189, 248, 0.15);
     }
     section[data-testid="stSidebar"] * {
-        color: #e4e4e7 !important;
+        color: #e2e8f0 !important;
     }
     /* Selectbox / dropdown */
     section[data-testid="stSidebar"] [data-baseweb="select"] > div {
-        background: rgba(255,255,255,0.07) !important;
-        border-color: rgba(255,255,255,0.15) !important;
-        color: #e4e4e7 !important;
+        background: rgba(56, 189, 248, 0.08) !important;
+        border-color: rgba(56, 189, 248, 0.25) !important;
+        color: #e2e8f0 !important;
     }
     div[data-baseweb="popover"] li {
-        background: #1a1a2e !important;
-        color: #e4e4e7 !important;
+        background: #1e293b !important;
+        color: #e2e8f0 !important;
     }
     div[data-baseweb="popover"] li:hover {
-        background: rgba(127, 90, 240, 0.3) !important;
+        background: rgba(56, 189, 248, 0.2) !important;
     }
     /* Slider track/number */
     section[data-testid="stSidebar"] [data-testid="stSliderThumbValue"],
     section[data-testid="stSidebar"] [data-testid="stTickBarMin"],
     section[data-testid="stSidebar"] [data-testid="stTickBarMax"] {
-        color: #e4e4e7 !important;
+        color: #e2e8f0 !important;
     }
 
-    /* Inline code / code blocks (e.g. `generate_response()`) */
+    /* Inline code / code blocks */
     code {
-        background: rgba(127, 90, 240, 0.18) !important;
-        color: #c4b5fd !important;
-        border: 1px solid rgba(127, 90, 240, 0.3);
+        background: rgba(56, 189, 248, 0.15) !important;
+        color: #7dd3fc !important;
+        border: 1px solid rgba(56, 189, 248, 0.3);
         border-radius: 5px;
         padding: 0.1rem 0.4rem;
     }
@@ -163,32 +188,101 @@ st.markdown("""
         color: #e4e4e7 !important;
     }
 
-    /* Buttons */
+    /* Default (main-area) buttons — suggestion chips: blue/cyan gradient */
     .stButton > button {
         border-radius: 10px;
         border: none;
-        background: linear-gradient(135deg, #7f5af0, #2cb67d);
+        background: linear-gradient(135deg, #2563eb, #06b6d4);
         color: white;
         font-weight: 600;
         transition: transform 0.15s ease, box-shadow 0.15s ease;
     }
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 6px 16px rgba(127, 90, 240, 0.4);
+        box-shadow: 0 6px 16px rgba(6, 182, 212, 0.35);
         color: white;
     }
 
-    /* Suggestion chips */
-    .suggestion-chip {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        margin: 0.25rem;
-        border-radius: 20px;
-        background: rgba(255,255,255,0.08);
-        color: #e4e4e7;
-        font-size: 0.85rem;
-        border: 1px solid rgba(255,255,255,0.12);
+    /* Sidebar buttons default back to a flat list style (overridden below) */
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        background: transparent !important;
+        color: #cbd5e1 !important;
+        font-weight: 400 !important;
+        box-shadow: none !important;
+        padding: 0.4rem 0.6rem !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        border-radius: 8px !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+        background: rgba(56, 189, 248, 0.12) !important;
+        transform: none;
+        box-shadow: none;
+    }
+
+    /* "New chat" — 1st sidebar button — vivid blue/violet, stands out as primary action */
+    section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(1) > button {
+        background: linear-gradient(135deg, #4f46e5, #06b6d4) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        justify-content: center !important;
+        padding: 0.6rem !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(1) > button:hover {
+        box-shadow: 0 6px 16px rgba(79, 70, 229, 0.4) !important;
+    }
+
+    /* "Delete this chat" — 2nd sidebar button — warm red/rose, signals destructive action */
+    section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(2) > button {
+        background: linear-gradient(135deg, #f43f5e, #b91c1c) !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        justify-content: center !important;
+        padding: 0.6rem !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"]:nth-of-type(2) > button:hover {
+        box-shadow: 0 6px 16px rgba(244, 63, 94, 0.4) !important;
+    }
+
+    /* Conversation history list items */
+    .conv-item {
+        padding: 0.5rem 0.7rem;
+        border-radius: 8px;
+        margin-bottom: 0.25rem;
+        font-size: 0.88rem;
+        color: #cbd5e1;
         cursor: pointer;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .conv-item.active {
+        background: rgba(250, 204, 21, 0.15);
+        color: #facc15 !important;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button {
+        text-align: left !important;
+        justify-content: flex-start !important;
+        background: transparent !important;
+        color: #cbd5e1 !important;
+        font-weight: 400 !important;
+        box-shadow: none !important;
+        padding: 0.4rem 0.6rem !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+    }
+    section[data-testid="stSidebar"] div[data-testid="stButton"] > button:hover {
+        background: rgba(255,255,255,0.08) !important;
+        transform: none;
+        box-shadow: none;
     }
 
     /* Scrollbar */
@@ -198,15 +292,59 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------------
+# SESSION STATE / LOAD HISTORY
+# ----------------------------------------------------------------------------
+if "history" not in st.session_state:
+    st.session_state.history = load_history()  # {conv_id: {"title":.., "messages":[...]}}
+
+if "current_id" not in st.session_state:
+    if st.session_state.history:
+        # open most recently used conversation
+        st.session_state.current_id = list(st.session_state.history.keys())[-1]
+    else:
+        new_id = str(uuid.uuid4())
+        st.session_state.history[new_id] = {"title": "New chat", "messages": []}
+        st.session_state.current_id = new_id
+
+# ----------------------------------------------------------------------------
 # SIDEBAR
 # ----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 💡 About")
-    st.caption("An AI-powered assistant that enables employees to instantly search, understand, and navigate Deutsche Bank policies, procedures, and internal knowledge resources. Swap `generate_response()` with your own LLM call (OpenAI, Anthropic, local model, etc.).")
+    st.caption("An AI-powered assistant that enables employees to instantly search, understand, and navigate Deutsche Bank policies, procedures, and internal knowledge resources.")
     st.markdown("---")
-    if st.button("🗑️ Clear conversation", use_container_width=True):
-        st.session_state.messages = []
+
+    if st.button("➕  New chat", use_container_width=True):
+        new_id = str(uuid.uuid4())
+        st.session_state.history[new_id] = {"title": "New chat", "messages": []}
+        st.session_state.current_id = new_id
+        save_history(st.session_state.history)
         st.rerun()
+
+    if st.button("🗑️ Delete this chat", use_container_width=True):
+        del st.session_state.history[st.session_state.current_id]
+        if not st.session_state.history:
+            new_id = str(uuid.uuid4())
+            st.session_state.history[new_id] = {"title": "New chat", "messages": []}
+            st.session_state.current_id = new_id
+        else:
+            st.session_state.current_id = list(st.session_state.history.keys())[-1]
+        save_history(st.session_state.history)
+        st.rerun()
+
+    st.markdown("---")
+    st.markdown("**Recent chats**")
+
+    # newest first
+    for conv_id in reversed(list(st.session_state.history.keys())):
+        conv = st.session_state.history[conv_id]
+        label = ("📍 " if conv_id == st.session_state.current_id else "") + conv["title"]
+        if st.button(label, key=f"conv_{conv_id}", use_container_width=True):
+            st.session_state.current_id = conv_id
+            st.rerun()
+
+# Convenience pointer to the active conversation's message list
+messages = st.session_state.history[st.session_state.current_id]["messages"]
 
 # ----------------------------------------------------------------------------
 # HEADER
@@ -219,71 +357,69 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ----------------------------------------------------------------------------
-# SESSION STATE
-# ----------------------------------------------------------------------------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# ----------------------------------------------------------------------------
 # MOCK RESPONSE GENERATOR — replace with your real API call
 # ----------------------------------------------------------------------------
 def generate_response(user_input: str) -> str:
     """
-    Replace this function's body with a real call, e.g.:
-
-    from anthropic import Anthropic
-    client = Anthropic(api_key="...")
-    resp = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=1000,
-        messages=[{"role": "m", "content": user_input}]
-    )
-    return resp.content[0].text
+    Calls your backend API and returns the assistant's reply as a string.
     """
-    canned = [
-        f"That's an interesting point about \"{user_input[:40]}...\" — here's my take.",
-        "Great question! Let me break that down for you.",
-        "I'd be happy to help with that. Here's what I think:",
-    ]
-    return random.choice(canned) + "\n\n(This is a placeholder response — connect your model in `generate_response()`.)"
+    import requests
+
+    try:
+        response = requests.post(
+            "https://your-backend-api.com/chat",   # <-- your endpoint
+            json={"message": user_input},           # <-- your request payload
+            headers={"Authorization": "Bearer YOUR_API_KEY"},  # if needed
+            timeout=30,
+        )
+        response.raise_for_status()
+        data = response.json()
+        return data["reply"]   # <-- adjust to match your API's response shape
+    except Exception as e:
+        return f"⚠️ Error contacting backend: {e}"
 
 # ----------------------------------------------------------------------------
 # WELCOME / SUGGESTION CHIPS (only when conversation is empty)
 # ----------------------------------------------------------------------------
-if not st.session_state.messages:
+if not messages:
     st.markdown("<div style='text-align:center; color:#a1a1aa; margin-bottom:1rem;'>Try asking:</div>", unsafe_allow_html=True)
     cols = st.columns(3)
     suggestions = ["⚖️ Explain employee code of conduct", "🏦 Tell me about Deutsche Bank", "📄 Show the leave policy"]
     for col, s in zip(cols, suggestions):
         with col:
             if st.button(s, use_container_width=True):
-                st.session_state.messages.append({"role": "user", "content": s.split(" ", 1)[1]})
+                messages.append({"role": "user", "content": s.split(" ", 1)[1]})
                 st.rerun()
 
 # ----------------------------------------------------------------------------
 # RENDER CHAT HISTORY
 # ----------------------------------------------------------------------------
-for msg in st.session_state.messages:
+for msg in messages:
     avatar = "🧑" if msg["role"] == "user" else "🤖"
     with st.chat_message(msg["role"], avatar=avatar):
         st.markdown(msg["content"])
 
 # If last message is from user (e.g. via chip click), generate a response
-if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+if messages and messages[-1]["role"] == "user":
     with st.chat_message("assistant", avatar="🤖"):
         placeholder = st.empty()
-        full_text = generate_response(st.session_state.messages[-1]["content"])
+        full_text = generate_response(messages[-1]["content"])
         streamed = ""
         for word in full_text.split(" "):
             streamed += word + " "
             placeholder.markdown(streamed + "▌")
             time.sleep(0.02)
         placeholder.markdown(full_text)
-    st.session_state.messages.append({"role": "assistant", "content": full_text})
+    messages.append({"role": "assistant", "content": full_text})
+
+    # Update title from first user message and persist to disk
+    st.session_state.history[st.session_state.current_id]["title"] = make_title(messages)
+    save_history(st.session_state.history)
 
 # ----------------------------------------------------------------------------
 # CHAT INPUT
 # ----------------------------------------------------------------------------
 if prompt := st.chat_input("Type your message..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    messages.append({"role": "user", "content": prompt})
+    save_history(st.session_state.history)
     st.rerun()
