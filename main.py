@@ -177,6 +177,33 @@ light_css = """
     }
     .stChatInput button:hover { transform: translateY(-2px); box-shadow: 0 12px 28px rgba(6,182,212,0.18); }
 
+    /* Native attach (paperclip) button inside st.chat_input — same pill family as the send button */
+    [data-testid="stChatInputFileUploadButton"],
+    button[data-testid*="FileUpload"] {
+        background: rgba(15,23,42,0.05) !important;
+        border-radius: 10px !important;
+        color: #0f172a !important;
+        border: none !important;
+        transition: background 0.12s ease, transform 0.12s ease;
+    }
+    [data-testid="stChatInputFileUploadButton"]:hover,
+    button[data-testid*="FileUpload"]:hover {
+        background: rgba(6,182,212,0.14) !important;
+        transform: translateY(-1px);
+    }
+    [data-testid="stChatInputFileUploadButton"] svg,
+    button[data-testid*="FileUpload"] svg {
+        fill: #0f172a !important;
+    }
+    /* Attached-file chip that appears inside the chat input box */
+    [data-testid^="stChatInputFile"] {
+        background: rgba(96,165,250,0.1) !important;
+        border: 1px solid rgba(37,99,235,0.18) !important;
+        border-radius: 10px !important;
+        color: #0f172a !important;
+    }
+    [data-testid^="stChatInputFile"] * { color: #0f172a !important; }
+
     /* Sidebar */
     section[data-testid="stSidebar"] {
         background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
@@ -320,6 +347,33 @@ dark_css = """
         box-shadow: 0 10px 30px rgba(6,182,212,0.14); border: none !important; font-weight:800 !important; transition: transform 0.12s ease, box-shadow 0.12s ease;
     }
     .stChatInput button:hover { transform: translateY(-3px); box-shadow: 0 18px 44px rgba(96,165,250,0.2); }
+
+    /* Native attach (paperclip) button inside st.chat_input — same pill family as the send button */
+    [data-testid="stChatInputFileUploadButton"],
+    button[data-testid*="FileUpload"] {
+        background: rgba(255,255,255,0.05) !important;
+        border-radius: 10px !important;
+        color: #e6eef2 !important;
+        border: none !important;
+        transition: background 0.12s ease, transform 0.12s ease;
+    }
+    [data-testid="stChatInputFileUploadButton"]:hover,
+    button[data-testid*="FileUpload"]:hover {
+        background: rgba(6,182,212,0.22) !important;
+        transform: translateY(-1px);
+    }
+    [data-testid="stChatInputFileUploadButton"] svg,
+    button[data-testid*="FileUpload"] svg {
+        fill: #e6eef2 !important;
+    }
+    /* Attached-file chip that appears inside the chat input box */
+    [data-testid^="stChatInputFile"] {
+        background: rgba(96,165,250,0.12) !important;
+        border: 1px solid rgba(96,165,250,0.25) !important;
+        border-radius: 10px !important;
+        color: #e6eef2 !important;
+    }
+    [data-testid^="stChatInputFile"] * { color: #e6eef2 !important; }
 
     /* Sidebar - more distinct */
     section[data-testid="stSidebar"] { background: linear-gradient(180deg, #071026 0%, #07122a 100%); border-right: 1px solid rgba(96,165,250,0.08); }
@@ -468,9 +522,22 @@ if messages and messages[-1]["role"] == "user":
     save_history(st.session_state.history)
 
 # ----------------------------------------------------------------------------
-# CHAT INPUT
+# CHAT INPUT (with attach-document button built into the input box)
 # ----------------------------------------------------------------------------
-if prompt := st.chat_input("Type your message..."):
-    messages.append({"role": "user", "content": prompt})
-    save_history(st.session_state.history)
-    st.rerun()
+# Requires Streamlit >= 1.40 for the native accept_file paperclip icon.
+chat_value = st.chat_input(
+    "Type your message...",
+    accept_file=True,
+    file_type=["pdf", "docx", "doc", "txt", "csv", "xlsx"],
+)
+
+if chat_value:
+    prompt = chat_value.text or ""
+    content = prompt
+    if chat_value.files:
+        uploaded_file = chat_value.files[0]
+        content = f"{prompt}\n\n📎 *Attached document: {uploaded_file.name}*".strip()
+    if content:
+        messages.append({"role": "user", "content": content})
+        save_history(st.session_state.history)
+        st.rerun()
